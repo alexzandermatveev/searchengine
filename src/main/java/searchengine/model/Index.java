@@ -27,13 +27,13 @@ public class Index {
     /**
      * Связанная с индексом лемма
      */
-    @ManyToOne(cascade = CascadeType.MERGE)
-    @JoinColumn(name = "lemma", referencedColumnName = "id")
+    @ManyToOne
+    @JoinColumn(name = "lemma", referencedColumnName = "lemma")
     private Lemma lemma;
     /**
      * Связанная с индексом страница
      */
-    @ManyToOne(cascade = CascadeType.MERGE)
+    @ManyToOne
     @JoinColumn(name = "page", referencedColumnName = "id")
     private PageModel page;
     /**

@@ -7,6 +7,7 @@ import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.springframework.data.domain.Example;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -51,8 +52,8 @@ public class IndexingServiceImpl implements IndexingService {
     private final SiteRepository siteRepository;
     private final SitesList sites;
 
-    private ForkJoinPool forkJoinPool = new ForkJoinPool();
-    private ExecutorService executorService = Executors.newCachedThreadPool();
+    private final ForkJoinPool forkJoinPool = new ForkJoinPool();
+    private final ExecutorService executorService = Executors.newCachedThreadPool();
 
     @Getter
     private static final AtomicBoolean stopFlag = new AtomicBoolean(false);
@@ -84,6 +85,8 @@ public class IndexingServiceImpl implements IndexingService {
                         return new ShortInfo(false, "Страница не доступна");
                     }
                     pageRepository.save(p);
+                    MorfologyService morfologyService = new MorfologyService(luceneMorphEn, luceneMorphRu, indexRepository, lemmaRepository, pageRepository, new PageModel());
+                    morfologyService.indexPage(p);
                     return new ShortInfo(true, "Страница проиндексирована");
                 } else {
                     PageModel p = new PageModel();
@@ -96,15 +99,19 @@ public class IndexingServiceImpl implements IndexingService {
                                 .execute();
                         p.setCode(response.statusCode());
                         p.setContent(response.parse().html());
-                        SiteModel pSite = p.getSite();
+
+                        SiteModel pSite = potentionalSite.get();
                         List<PageModel> pageModels = pSite.getPage();
                         pageModels.add(p);
                         pSite.setPage(pageModels);
                         siteRepository.save(pSite);
+
                     } catch (IOException e) {
                         return new ShortInfo(false, "Страница не доступна");
                     }
                     pageRepository.save(p);
+                    MorfologyService morfologyService = new MorfologyService(luceneMorphEn, luceneMorphRu, indexRepository, lemmaRepository, pageRepository, new PageModel());
+                    morfologyService.indexPage(p);
                     return new ShortInfo(true, "Страница проиндексирована");
                 }
             }
@@ -120,6 +127,8 @@ public class IndexingServiceImpl implements IndexingService {
         if (forkJoinPool.getActiveThreadCount() > 0) {
             return new ShortInfo(false, "Индексация уже запущена");
         }
+
+        stopFlag.set(false);
 
         for (Site site : sites.getSites()) {
             SiteModel dbSite = siteRepository.findByUrl(site.getUrl());
@@ -176,10 +185,12 @@ public class IndexingServiceImpl implements IndexingService {
 
     @Override
     public ShortInfo pagesForSiteIndexingLemmas(SiteModel targetSite) {
-
+        stopFlag.set(false);
+        stopCheckLemmasOnSite.set(false);
         if (siteRepository.findByUrl(targetSite.getUrl()).getPage().isEmpty()) {
             return new ShortInfo(false, "У указанного сайта нет проиндексированных страниц");
         }
+        stopCheckLemmasOnSite.set(false);
         for (PageModel page : siteRepository.findByUrl(targetSite.getUrl()).getPage()) {
             Future<ShortInfo> future = executorService.submit(new MorfologyService(luceneMorphEn, luceneMorphRu, indexRepository,
                     lemmaRepository, pageRepository, page));
@@ -210,7 +221,6 @@ public class IndexingServiceImpl implements IndexingService {
 
         MorfologyService morfologyService = new MorfologyService(luceneMorphEn, luceneMorphRu, indexRepository, lemmaRepository, pageRepository, new PageModel());
         lemmasFromQuery = morfologyService.morphologyForms(query);
-
         List<Lemma> qLemmas = lemmasFromQuery.keySet().stream()
                 .map(lemmaRepository::findByLemma)
                 .filter(lemma -> lemma != null && lemma.getFrequency() <= frequencyLimit)

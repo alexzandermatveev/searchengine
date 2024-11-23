@@ -12,6 +12,8 @@ import searchengine.repository.PageRepository;
 
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Сервис по лемматизации слов
@@ -118,60 +120,60 @@ public class MorfologyService implements Callable<ShortInfo> {
     public ShortInfo indexPage(PageModel page) {
         page = pageRepository.findById(page.getId()).orElseThrow(() -> new RuntimeException("no page"));
         List<Index> indexesByPage = page.getIndexList();
-        List<Lemma> lemmasByIndex = new ArrayList<>();
-        indexesByPage.forEach(index -> {
-
-            Lemma innerLemma = index.getLemma();
-            List<Index> innerIndexes = innerLemma.getIndexList();
-            innerIndexes.remove(index);
-            innerLemma.setIndexList(innerIndexes);
-            if (!lemmasByIndex.contains(innerLemma)) {
-                lemmasByIndex.add(innerLemma);
-            }
-        });
         indexRepository.deleteAll(indexesByPage);
-        lemmaRepository.saveAll(lemmasByIndex.stream()
-                .distinct()
-                .peek(lemma -> lemma.setFrequency(lemma.getFrequency() - 1L))
-                .toList());
         HashMap<String, Long> map = morphologyForms(page.getContent());
-        for (String key : map.keySet()) {
-            System.out.println("inner check");
-            Lemma lemmaDB = lemmaRepository.findWithIndexListByLemma(key);
-            if (lemmaDB == null) {
-                lemmaDB = new Lemma();
-                Index newIndex = new Index();
-                lemmaDB.setLemma(key);
-                lemmaDB.setFrequency(1L);
-                newIndex.setLemma(lemmaDB);
-                newIndex.setPage(page);
-                newIndex.setRank(map.get(key));
 
-                lemmaRepository.save(lemmaDB);
-                indexRepository.save(newIndex);
+        if (map.isEmpty()) {
+            return new ShortInfo(false, "Invalid content");
+        }
+
+        Set<Lemma> lemmasInDB = new HashSet<>(lemmaRepository.findAllByLemmaIn(map.keySet()));
+        Map<String, Lemma> lemmasMap = lemmasInDB.stream()
+                .collect(Collectors.toMap(Lemma::getLemma, Function.identity()));
+
+        List<Index> newIndexes = new ArrayList<>();
+        List<Lemma> updatedLemmas = new ArrayList<>();
+        List<Lemma> newLemmas = new ArrayList<>();
+
+        for (Map.Entry<String, Long> entry : map.entrySet()) {
+            String lemmaKey = entry.getKey();
+            Long rank = entry.getValue();
+
+            Lemma lemma = lemmasMap.get(lemmaKey);
+            if (lemma == null) {
+                lemma = new Lemma();
+                lemma.setLemma(lemmaKey);
+                lemma.setFrequency(1L);
+
+                Index newIndex = new Index(null, lemma, page, rank);
+                newLemmas.add(lemma);
+                newIndexes.add(newIndex);
             } else {
-                boolean isIndexInLemmaList = false;
-                for (Index i : lemmaDB.getIndexList()) {
-                    if (i.getPage().getPath().equals(page.getPath())) {
-                        i.setRank(map.get(key));
-                        indexRepository.save(i);
-                        isIndexInLemmaList = true;
-                        break;
-                    }
-                }
-                if (!isIndexInLemmaList) {
-                    lemmaDB.setFrequency(lemmaDB.getFrequency() + 1L);
-                    Index newI = new Index();
-                    newI.setPage(page);
-                    newI.setLemma(lemmaDB);
-                    newI.setRank(map.get(key));
-                    indexRepository.save(newI);
-                    lemmaRepository.save(lemmaDB);
+                lemma.setFrequency(lemma.getFrequency() + 1L);
+                updatedLemmas.add(lemma);
+
+                boolean indexExists = indexRepository.existsByPageAndLemma(page, lemma); //lemma.getIndexList().stream().anyMatch(index -> index.getPage().getId() == thePageId);
+
+                if (!indexExists) {
+                    Index newIndex = new Index(null, lemma, page, rank);
+                    newIndexes.add(newIndex);
+                } else {
+                    List<Index> indexes = indexRepository.findAllByPageAndLemma(page, lemma).stream()
+                            .peek(index -> index.setRank(rank))
+                            .toList();
+                    newIndexes.addAll(indexes);
+                    updatedLemmas.add(lemma);
                 }
             }
         }
-        if (map.isEmpty()) {
-            return new ShortInfo(false, "wrong content");
+        if (!newLemmas.isEmpty()) {
+            lemmaRepository.saveAll(newLemmas);
+        }
+        if (!updatedLemmas.isEmpty()) {
+            lemmaRepository.saveAll(updatedLemmas);
+        }
+        if (!newIndexes.isEmpty()) {
+            indexRepository.saveAll(newIndexes);
         }
         return new ShortInfo(true, "переиндексация завершена");
     }
@@ -186,13 +188,11 @@ public class MorfologyService implements Callable<ShortInfo> {
     }
 
     @Override
-    public ShortInfo call() throws Exception {
-        System.out.println("вызов call");
+    public ShortInfo call() {
         if (IndexingServiceImpl.getStopCheckLemmasOnSite().get()) {
             return new ShortInfo(false, "stopped");
         }
         siteForIndexing = pageRepository.findByPath(siteForIndexing.getPath());
-        System.out.println("вызов call завершен");
         return checkSite(siteForIndexing);
     }
 }

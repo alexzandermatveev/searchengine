@@ -32,7 +32,7 @@ public class PageModel {
     /**
      * Материнский сайт
      */
-    @ManyToOne(cascade = CascadeType.MERGE)
+    @ManyToOne
     @JoinColumn(name = "site", referencedColumnName = "id")
     private SiteModel site;
 
@@ -55,7 +55,7 @@ public class PageModel {
     /**
      * Список индексов страницы, связывающие {@link Lemma} и {@link PageModel}
      */
-    @OneToMany(mappedBy = "page", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    @OneToMany(mappedBy = "page", cascade = CascadeType.ALL)
     private List<searchengine.model.Index> indexList = new ArrayList<>();
 
 

@@ -22,15 +22,16 @@ public class Lemma {
     /**
      * Идентификатор леммы
      */
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    @Column(name = "id", nullable = false)
-    private Long id;
+//    @Id
+//    @GeneratedValue(strategy = GenerationType.IDENTITY)
+//    @Column(name = "id", nullable = false)
+//    private Long id;
 
     /**
      * Нормализованная форма слова
      */
-    @Column(name = "lemma", nullable = false)
+    @Id
+//    @Column(name = "lemma", nullable = false, unique = true)
     private String lemma;
     /**
      * Частота повторения среди всех страниц всех сайтов

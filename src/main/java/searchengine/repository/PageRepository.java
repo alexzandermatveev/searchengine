@@ -14,6 +14,8 @@ import java.util.Optional;
 public interface PageRepository extends JpaRepository<PageModel, Long> {
     PageModel findByPath(String path);
 
+    Boolean existsByPath(String path);
+
     /**
      * Удаляет все записи из таблицы в БД по ссылке на страницу
      *

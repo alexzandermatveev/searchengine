@@ -77,6 +77,10 @@ public class PagesFinder extends RecursiveTask<Void> {
      */
     private HashSet<String> getHashLinks() {
         HashSet<String> hashLinks = new HashSet<>();
+        if (IndexingServiceImpl.getStopFlag().get()) {
+            return hashLinks;
+        }
+
         try {
             Connection.Response response;
             if (checkedLinks.contains(url) || checkedLinks.contains(SITE_ORIGINAL.concat(url))) {
@@ -101,7 +105,7 @@ public class PagesFinder extends RecursiveTask<Void> {
                     .map(p -> p.attr("href"))
                     .distinct()
                     .filter(p -> !p.matches("http[s]*://[^,\\s]+") || !p.contains("/"))
-                    .filter(p -> !checkedLinks.contains(p))
+//                    .filter(p -> !checkedLinks.contains(p))
                     .toList());
         } catch (Exception e) {
             checkedLinks.put(url, url);
@@ -131,14 +135,20 @@ public class PagesFinder extends RecursiveTask<Void> {
         init();
         List<PagesFinder> taskList = createSubtasks(hashLinks);
         for (PagesFinder finder : taskList) {
+            if(IndexingServiceImpl.getStopFlag().get()){
+                break;
+            }
             finder.fork();
         }
         for (PagesFinder task : taskList) {
+            if(IndexingServiceImpl.getStopFlag().get()){
+                break;
+            }
             task.join();
         }
         if (isRootTask && IndexingServiceImpl.getStopFlag().get()) {
             SiteModel site = siteRepository.findByUrl(url);
-            site.setStatus(SiteStatus.INDEXED);
+            site.setStatus(SiteStatus.FAILED);
             site.setLastError("interrupted by user");
             siteRepository.save(site);
         } else if (isRootTask && !IndexingServiceImpl.getStopFlag().get()) {
